@@ -9,7 +9,6 @@
   <!-- Papa Parse (CSV 파서) -->
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
-    /* 스크롤 성능 향상용 */
     .table-container { height: 60vh; overflow: auto; }
     thead th { position: sticky; top: 0; background: white; }
   </style>
@@ -38,7 +37,7 @@
       </div>
 
       <!-- 상태/요약 -->
-      <div id="status" class="text-center text-sm text-gray-600">회차를 선택하고 [번호 불러오기]를 눌러주세요.</div>
+      <div id="status" class="text-center text-sm text-gray-600">회차 목록을 불러오는 중...</div>
     </section>
 
     <!-- 테이블 & 페이지네이션 -->
@@ -96,25 +95,19 @@
 
   <script>
     // ==============================
-    // 1) 설정: 파일 경로 & 회차 목록
+    // 1) 설정: 파일 경로
     // ==============================
-    // CSV 파일을 /data 폴더에 넣었다고 가정합니다. 원하면 ""(루트)로 변경하세요.
-    const BASE_PATH = "data/"; // 예: data/predictions_1124회_80000줄.csv
-
-    // 회차 목록: 새 회차를 추가할 때 이 배열에 한 줄 추가하면 됩니다.
-    // round: 숫자형 회차, file: 파일명 (BASE_PATH 기준)
-    // ─ 예시 두 줄만 넣어둡니다. 실제로는 본인 데이터에 맞춰 추가하세요.
-    const ROUNDS = [
-      { round: 1124, file: "predictions_1124회_80000줄.csv" },
-      { round: 1125, file: "predictions_1125회_80000줄.csv" }
-    ];
+    // CSV/매니페스트는 /data 폴더에 둡니다.
+    const BASE_PATH = "data/"; // 예: data/predictions_1189회_80000줄.csv
+    const MANIFEST  = "manifest.json"; // data/manifest.json
 
     // ==============================
     // 2) 상태 변수
     // ==============================
+    let manifest = [];
     let currentRound = null;
     let currentFile = null;
-    let rows = [];   // CSV 파싱 결과 (배열의 배열)
+    let rows = [];   // CSV 파싱 결과 (배열의 객체)
     let page = 1;
     let pageSize = 200;
 
@@ -140,46 +133,56 @@
     const pageSizeSel = $("#pageSize");
     const tbody = $("#tbody");
 
-    // ==============================
-    // 4) 초기화: 회차 드롭다운 & URL 파라미터
-    // ==============================
-    function initRounds() {
-      // 최신 회차가 위에 오도록 정렬 (내림차순)
-      const sorted = [...ROUNDS].sort((a, b) => b.round - a.round);
-      sorted.forEach(({ round, file }) => {
-        const opt = document.createElement('option');
-        opt.value = String(round);
-        opt.textContent = `${round}회`;
-        opt.dataset.file = file;
-        roundSelect.appendChild(opt);
-      });
-
-      // URL 파라미터 ?round=1125 지원
-      const params = new URLSearchParams(window.location.search);
-      const r = params.get('round');
-      if (r && sorted.some(x => String(x.round) === r)) {
-        roundSelect.value = r;
-      }
-
-      // 기본 선택 상태 반영
-      const selOpt = roundSelect.selectedOptions[0];
-      currentRound = Number(selOpt.value);
-      currentFile  = selOpt.dataset.file;
-      updateDownloadLink();
-    }
-
-    // ==============================
-    // 5) 로딩 & 렌더링
-    // ==============================
     function setStatus(msg, isError=false) {
       statusEl.textContent = msg;
       statusEl.className = `text-center text-sm ${isError ? 'text-red-600' : 'text-gray-600'}`;
     }
 
     function updateDownloadLink() {
-      // GitHub Pages에서는 같은 리포 내 정적 파일이므로 BASE_PATH + 파일명으로 접근 가능
       downloadLink.href = BASE_PATH + currentFile;
       downloadLink.setAttribute('download', currentFile);
+    }
+
+    function fillRounds() {
+      roundSelect.innerHTML = '';
+      // 최신 회차가 위에 오도록 정렬 (내림차순)
+      const sorted = [...manifest].sort((a, b) => b.round - a.round);
+      sorted.forEach(({ round, file, label }) => {
+        const opt = document.createElement('option');
+        opt.value = String(round);
+        opt.textContent = label || `${round}회`;
+        opt.dataset.file = file;
+        roundSelect.appendChild(opt);
+      });
+
+      // URL 파라미터 ?round=1189 지원
+      const params = new URLSearchParams(window.location.search);
+      const r = params.get('round');
+      if (r && sorted.some(x => String(x.round) === r)) {
+        roundSelect.value = r;
+      }
+
+      const selOpt = roundSelect.selectedOptions[0];
+      currentRound = Number(selOpt.value);
+      currentFile  = selOpt.dataset.file;
+      updateDownloadLink();
+      setStatus('회차를 선택하고 [번호 불러오기]를 눌러주세요.');
+    }
+
+    async function loadManifest() {
+      try {
+        const res = await fetch(BASE_PATH + MANIFEST, { cache: 'no-store' });
+        if (!res.ok) throw new Error('manifest.json not found');
+        const json = await res.json();
+        // 기대 형식: [{ round: 1189, file: "predictions_1189회_80000줄.csv", label: "1189회" }, ...]
+        if (!Array.isArray(json)) throw new Error('manifest must be an array');
+        manifest = json;
+        if (manifest.length === 0) throw new Error('manifest is empty');
+        fillRounds();
+      } catch (e) {
+        console.error(e);
+        setStatus('회차 목록(manifest.json)을 불러오지 못했습니다. data/manifest.json을 체크하세요.', true);
+      }
     }
 
     function loadCSV() {
@@ -190,10 +193,10 @@
 
       Papa.parse(BASE_PATH + currentFile, {
         download: true,
-        header: true, // 헤더 포함
+        header: true,
         skipEmptyLines: true,
         complete: function(results) {
-          rows = results.data; // 배열의 객체들
+          rows = results.data;
           setStatus(`회차 ${currentRound}: 총 ${rows.length.toLocaleString()} 줄 로드 완료.`);
           renderPage();
         },
@@ -212,7 +215,6 @@
       const start = (page - 1) * pageSize;
       const end   = Math.min(start + pageSize, total);
 
-      // 테이블 렌더링
       tbody.innerHTML = '';
       for (let i = start; i < end; i++) {
         const r = rows[i];
@@ -231,7 +233,6 @@
         tbody.appendChild(tr);
       }
 
-      // 페이지 정보 및 버튼 상태
       pageNow.textContent = String(page);
       pageTotal.textContent = String(totalPages);
       pageNow2.textContent = String(page);
@@ -244,14 +245,13 @@
     }
 
     // ==============================
-    // 6) 이벤트 바인딩
+    // 이벤트 바인딩
     // ==============================
     roundSelect.addEventListener('change', () => {
       const sel = roundSelect.selectedOptions[0];
       currentRound = Number(sel.value);
       currentFile  = sel.dataset.file;
       updateDownloadLink();
-      // URL에 round 파라미터 반영
       const url = new URL(window.location.href);
       url.searchParams.set('round', String(currentRound));
       window.history.replaceState({}, '', url);
@@ -284,8 +284,8 @@
     });
 
     document.addEventListener('DOMContentLoaded', () => {
-      initRounds();
       $("#year").textContent = new Date().getFullYear();
+      loadManifest();
     });
   </script>
 </body>
