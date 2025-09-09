@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>로또 예측 조합 뷰어 & 다운로드</title>
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Papa Parse (CSV 파서) -->
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    /* 스크롤 성능 향상용 */
+    .table-container { height: 60vh; overflow: auto; }
+    thead th { position: sticky; top: 0; background: white; }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900">
+  <main class="max-w-5xl mx-auto px-4 py-10 flex flex-col items-center">
+    <!-- 헤더 -->
+    <header class="text-center mb-8">
+      <h1 class="text-3xl font-bold tracking-tight">🎟️ 로또 조합 80,000줄 · 회차별 뷰어</h1>
+      <p class="text-gray-600 mt-2">엔터테인먼트/연구용. 실제 로또는 무작위입니다.</p>
+    </header>
+
+    <!-- 컨트롤 패널 -->
+    <section class="w-full max-w-3xl mx-auto bg-white shadow-sm rounded-2xl p-5 flex flex-col gap-4 items-center">
+      <!-- 회차 선택 -->
+      <div class="flex flex-col sm:flex-row items-center gap-3 w-full justify-center">
+        <label for="roundSelect" class="font-medium">회차 선택</label>
+        <select id="roundSelect" class="border rounded-xl px-4 py-2 w-full sm:w-64 text-center"></select>
+      </div>
+
+      <!-- 액션 버튼 -->
+      <div class="flex flex-wrap items-center justify-center gap-3">
+        <button id="loadBtn" class="px-4 py-2 rounded-2xl bg-black text-white shadow hover:opacity-90">번호 불러오기</button>
+        <a id="downloadLink" class="px-4 py-2 rounded-2xl bg-gray-800 text-white shadow hover:opacity-90" href="#" download>CSV 다운로드</a>
+        <button id="copyLinkBtn" class="px-4 py-2 rounded-2xl bg-gray-200 hover:bg-gray-300">고정 링크 복사</button>
+      </div>
+
+      <!-- 상태/요약 -->
+      <div id="status" class="text-center text-sm text-gray-600">회차를 선택하고 [번호 불러오기]를 눌러주세요.</div>
+    </section>
+
+    <!-- 테이블 & 페이지네이션 -->
+    <section class="w-full mt-8 flex flex-col items-center">
+      <div class="w-full max-w-5xl bg-white shadow-sm rounded-2xl p-4">
+        <!-- 페이지 컨트롤 -->
+        <div class="flex flex-wrap items-center justify-center gap-3 mb-4">
+          <button id="prevBtn" class="px-3 py-2 rounded-xl border" disabled>이전</button>
+          <div class="text-sm">페이지 <span id="pageNow">1</span> / <span id="pageTotal">1</span></div>
+          <button id="nextBtn" class="px-3 py-2 rounded-xl border" disabled>다음</button>
+          <div class="flex items-center gap-2 ml-4">
+            <label for="pageSize" class="text-sm">페이지 크기</label>
+            <select id="pageSize" class="border rounded-lg px-2 py-1">
+              <option>100</option>
+              <option selected>200</option>
+              <option>500</option>
+              <option>1000</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 테이블 -->
+        <div class="table-container border rounded-xl">
+          <table class="min-w-full text-sm text-center">
+            <thead>
+              <tr class="border-b">
+                <th class="py-2 px-2">#</th>
+                <th class="py-2 px-2">번호1</th>
+                <th class="py-2 px-2">번호2</th>
+                <th class="py-2 px-2">번호3</th>
+                <th class="py-2 px-2">번호4</th>
+                <th class="py-2 px-2">번호5</th>
+                <th class="py-2 px-2">번호6</th>
+                <th class="py-2 px-2">보너스</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- 다시 한 번 페이지 컨트롤 (하단) -->
+        <div class="flex flex-wrap items-center justify-center gap-3 mt-4">
+          <button id="prevBtn2" class="px-3 py-2 rounded-xl border" disabled>이전</button>
+          <div class="text-sm">페이지 <span id="pageNow2">1</span> / <span id="pageTotal2">1</span></div>
+          <button id="nextBtn2" class="px-3 py-2 rounded-xl border" disabled>다음</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 푸터 -->
+    <footer class="mt-10 text-center text-xs text-gray-500">
+      <p>© <span id="year"></span> Lotto Predictions • For entertainment and research only.</p>
+    </footer>
+  </main>
+
+  <script>
+    // ==============================
+    // 1) 설정: 파일 경로 & 회차 목록
+    // ==============================
+    // CSV 파일을 /data 폴더에 넣었다고 가정합니다. 원하면 ""(루트)로 변경하세요.
+    const BASE_PATH = "data/"; // 예: data/predictions_1124회_80000줄.csv
+
+    // 회차 목록: 새 회차를 추가할 때 이 배열에 한 줄 추가하면 됩니다.
+    // round: 숫자형 회차, file: 파일명 (BASE_PATH 기준)
+    // ─ 예시 두 줄만 넣어둡니다. 실제로는 본인 데이터에 맞춰 추가하세요.
+    const ROUNDS = [
+      { round: 1124, file: "predictions_1124회_80000줄.csv" },
+      { round: 1125, file: "predictions_1125회_80000줄.csv" }
+    ];
+
+    // ==============================
+    // 2) 상태 변수
+    // ==============================
+    let currentRound = null;
+    let currentFile = null;
+    let rows = [];   // CSV 파싱 결과 (배열의 배열)
+    let page = 1;
+    let pageSize = 200;
+
+    // ==============================
+    // 3) 유틸 & DOM 참조
+    // ==============================
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    const roundSelect = $("#roundSelect");
+    const loadBtn     = $("#loadBtn");
+    const downloadLink= $("#downloadLink");
+    const copyLinkBtn = $("#copyLinkBtn");
+    const statusEl    = $("#status");
+
+    const pageNow  = $("#pageNow");
+    const pageTotal= $("#pageTotal");
+    const pageNow2 = $("#pageNow2");
+    const pageTotal2=$("#pageTotal2");
+
+    const prevBtns = [$("#prevBtn"), $("#prevBtn2")];
+    const nextBtns = [$("#nextBtn"), $("#nextBtn2")];
+    const pageSizeSel = $("#pageSize");
+    const tbody = $("#tbody");
+
+    // ==============================
+    // 4) 초기화: 회차 드롭다운 & URL 파라미터
+    // ==============================
+    function initRounds() {
+      // 최신 회차가 위에 오도록 정렬 (내림차순)
+      const sorted = [...ROUNDS].sort((a, b) => b.round - a.round);
+      sorted.forEach(({ round, file }) => {
+        const opt = document.createElement('option');
+        opt.value = String(round);
+        opt.textContent = `${round}회`;
+        opt.dataset.file = file;
+        roundSelect.appendChild(opt);
+      });
+
+      // URL 파라미터 ?round=1125 지원
+      const params = new URLSearchParams(window.location.search);
+      const r = params.get('round');
+      if (r && sorted.some(x => String(x.round) === r)) {
+        roundSelect.value = r;
+      }
+
+      // 기본 선택 상태 반영
+      const selOpt = roundSelect.selectedOptions[0];
+      currentRound = Number(selOpt.value);
+      currentFile  = selOpt.dataset.file;
+      updateDownloadLink();
+    }
+
+    // ==============================
+    // 5) 로딩 & 렌더링
+    // ==============================
+    function setStatus(msg, isError=false) {
+      statusEl.textContent = msg;
+      statusEl.className = `text-center text-sm ${isError ? 'text-red-600' : 'text-gray-600'}`;
+    }
+
+    function updateDownloadLink() {
+      // GitHub Pages에서는 같은 리포 내 정적 파일이므로 BASE_PATH + 파일명으로 접근 가능
+      downloadLink.href = BASE_PATH + currentFile;
+      downloadLink.setAttribute('download', currentFile);
+    }
+
+    function loadCSV() {
+      setStatus(`회차 ${currentRound} 불러오는 중... 잠시만요.`);
+      rows = [];
+      page = 1;
+      tbody.innerHTML = '';
+
+      Papa.parse(BASE_PATH + currentFile, {
+        download: true,
+        header: true, // 헤더 포함
+        skipEmptyLines: true,
+        complete: function(results) {
+          rows = results.data; // 배열의 객체들
+          setStatus(`회차 ${currentRound}: 총 ${rows.length.toLocaleString()} 줄 로드 완료.`);
+          renderPage();
+        },
+        error: function(err) {
+          console.error(err);
+          setStatus('파일을 불러오지 못했습니다. 파일 경로나 이름을 확인하세요.', true);
+        }
+      });
+    }
+
+    function renderPage() {
+      const total = rows.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+      if (page > totalPages) page = totalPages;
+      const start = (page - 1) * pageSize;
+      const end   = Math.min(start + pageSize, total);
+
+      // 테이블 렌더링
+      tbody.innerHTML = '';
+      for (let i = start; i < end; i++) {
+        const r = rows[i];
+        const tr = document.createElement('tr');
+        tr.className = 'border-b';
+        tr.innerHTML = `
+          <td class="py-2">${i + 1}</td>
+          <td class="py-2">${r['번호1'] ?? ''}</td>
+          <td class="py-2">${r['번호2'] ?? ''}</td>
+          <td class="py-2">${r['번호3'] ?? ''}</td>
+          <td class="py-2">${r['번호4'] ?? ''}</td>
+          <td class="py-2">${r['번호5'] ?? ''}</td>
+          <td class="py-2">${r['번호6'] ?? ''}</td>
+          <td class="py-2 font-semibold">${r['보너스'] ?? ''}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      // 페이지 정보 및 버튼 상태
+      pageNow.textContent = String(page);
+      pageTotal.textContent = String(totalPages);
+      pageNow2.textContent = String(page);
+      pageTotal2.textContent = String(totalPages);
+
+      const canPrev = page > 1;
+      const canNext = page < totalPages;
+      prevBtns.forEach(b => b.disabled = !canPrev);
+      nextBtns.forEach(b => b.disabled = !canNext);
+    }
+
+    // ==============================
+    // 6) 이벤트 바인딩
+    // ==============================
+    roundSelect.addEventListener('change', () => {
+      const sel = roundSelect.selectedOptions[0];
+      currentRound = Number(sel.value);
+      currentFile  = sel.dataset.file;
+      updateDownloadLink();
+      // URL에 round 파라미터 반영
+      const url = new URL(window.location.href);
+      url.searchParams.set('round', String(currentRound));
+      window.history.replaceState({}, '', url);
+    });
+
+    loadBtn.addEventListener('click', loadCSV);
+
+    pageSizeSel.addEventListener('change', () => {
+      pageSize = Number(pageSizeSel.value);
+      page = 1;
+      renderPage();
+    });
+
+    prevBtns.forEach(btn => btn.addEventListener('click', () => { page = Math.max(1, page - 1); renderPage(); }));
+    nextBtns.forEach(btn => btn.addEventListener('click', () => {
+      const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+      page = Math.min(totalPages, page + 1);
+      renderPage();
+    }));
+
+    copyLinkBtn.addEventListener('click', async () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('round', String(currentRound));
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        setStatus('현재 회차 고정 링크를 복사했습니다. 설명란/고정 댓글에 붙여넣으세요.');
+      } catch {
+        setStatus('링크 복사에 실패했습니다. 수동으로 주소창의 URL을 복사해 주세요.', true);
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initRounds();
+      $("#year").textContent = new Date().getFullYear();
+    });
+  </script>
+</body>
+</html>
