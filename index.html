@@ -4,9 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>로또 예측 조합 뷰어 & 다운로드</title>
-  <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Papa Parse (CSV 파서) -->
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
     .table-container { height: 60vh; overflow: auto; }
@@ -19,31 +17,27 @@
     <header class="text-center mb-8">
       <h1 class="text-3xl font-bold tracking-tight">🎟️ 로또 조합 80,000줄 · 회차별 뷰어</h1>
       <p class="text-gray-600 mt-2">엔터테인먼트/연구용. 실제 로또는 무작위입니다.</p>
+      <p class="text-gray-800 mt-4 font-medium">행운의 로또번호 연구소 제작</p>
+      <a href="https://www.youtube.com/@%EB%A1%9C%EB%98%90%EB%8B%B9%EC%B2%A8%EB%90%98%EC%9E%90" target="_blank" class="text-blue-600 underline mt-1 inline-block">📺 유튜브 채널 바로가기</a>
     </header>
 
     <!-- 컨트롤 패널 -->
     <section class="w-full max-w-3xl mx-auto bg-white shadow-sm rounded-2xl p-5 flex flex-col gap-4 items-center">
-      <!-- 회차 선택 -->
       <div class="flex flex-col sm:flex-row items-center gap-3 w-full justify-center">
         <label for="roundSelect" class="font-medium">회차 선택</label>
         <select id="roundSelect" class="border rounded-xl px-4 py-2 w-full sm:w-64 text-center"></select>
       </div>
-
-      <!-- 액션 버튼 -->
       <div class="flex flex-wrap items-center justify-center gap-3">
         <button id="loadBtn" class="px-4 py-2 rounded-2xl bg-black text-white shadow hover:opacity-90">번호 불러오기</button>
         <a id="downloadLink" class="px-4 py-2 rounded-2xl bg-gray-800 text-white shadow hover:opacity-90" href="#" download>CSV 다운로드</a>
         <button id="copyLinkBtn" class="px-4 py-2 rounded-2xl bg-gray-200 hover:bg-gray-300">고정 링크 복사</button>
       </div>
-
-      <!-- 상태/요약 -->
       <div id="status" class="text-center text-sm text-gray-600">회차 목록을 불러오는 중...</div>
     </section>
 
     <!-- 테이블 & 페이지네이션 -->
     <section class="w-full mt-8 flex flex-col items-center">
       <div class="w-full max-w-5xl bg-white shadow-sm rounded-2xl p-4">
-        <!-- 페이지 컨트롤 -->
         <div class="flex flex-wrap items-center justify-center gap-3 mb-4">
           <button id="prevBtn" class="px-3 py-2 rounded-xl border" disabled>이전</button>
           <div class="text-sm">페이지 <span id="pageNow">1</span> / <span id="pageTotal">1</span></div>
@@ -58,8 +52,6 @@
             </select>
           </div>
         </div>
-
-        <!-- 테이블 -->
         <div class="table-container border rounded-xl">
           <table class="min-w-full text-sm text-center">
             <thead>
@@ -77,8 +69,6 @@
             <tbody id="tbody"></tbody>
           </table>
         </div>
-
-        <!-- 다시 한 번 페이지 컨트롤 (하단) -->
         <div class="flex flex-wrap items-center justify-center gap-3 mt-4">
           <button id="prevBtn2" class="px-3 py-2 rounded-xl border" disabled>이전</button>
           <div class="text-sm">페이지 <span id="pageNow2">1</span> / <span id="pageTotal2">1</span></div>
@@ -94,40 +84,25 @@
   </main>
 
   <script>
-    // ==============================
-    // 1) 설정: 파일 경로
-    // ==============================
-    // CSV/매니페스트는 /data 폴더에 둡니다.
-    const BASE_PATH = "data/"; // 예: data/predictions_1189회_80000줄.csv
-    const MANIFEST  = "manifest.json"; // data/manifest.json
-
-    // ==============================
-    // 2) 상태 변수
-    // ==============================
+    const BASE_PATH = "data/";
+    const MANIFEST  = "manifest.json";
     let manifest = [];
     let currentRound = null;
     let currentFile = null;
-    let rows = [];   // CSV 파싱 결과 (배열의 객체)
+    let rows = [];
     let page = 1;
     let pageSize = 200;
 
-    // ==============================
-    // 3) 유틸 & DOM 참조
-    // ==============================
     const $ = (sel) => document.querySelector(sel);
-    const $$ = (sel) => document.querySelectorAll(sel);
-
     const roundSelect = $("#roundSelect");
     const loadBtn     = $("#loadBtn");
     const downloadLink= $("#downloadLink");
     const copyLinkBtn = $("#copyLinkBtn");
     const statusEl    = $("#status");
-
     const pageNow  = $("#pageNow");
     const pageTotal= $("#pageTotal");
     const pageNow2 = $("#pageNow2");
     const pageTotal2=$("#pageTotal2");
-
     const prevBtns = [$("#prevBtn"), $("#prevBtn2")];
     const nextBtns = [$("#nextBtn"), $("#nextBtn2")];
     const pageSizeSel = $("#pageSize");
@@ -145,7 +120,6 @@
 
     function fillRounds() {
       roundSelect.innerHTML = '';
-      // 최신 회차가 위에 오도록 정렬 (내림차순)
       const sorted = [...manifest].sort((a, b) => b.round - a.round);
       sorted.forEach(({ round, file, label }) => {
         const opt = document.createElement('option');
@@ -154,14 +128,11 @@
         opt.dataset.file = file;
         roundSelect.appendChild(opt);
       });
-
-      // URL 파라미터 ?round=1189 지원
       const params = new URLSearchParams(window.location.search);
       const r = params.get('round');
       if (r && sorted.some(x => String(x.round) === r)) {
         roundSelect.value = r;
       }
-
       const selOpt = roundSelect.selectedOptions[0];
       currentRound = Number(selOpt.value);
       currentFile  = selOpt.dataset.file;
@@ -174,7 +145,6 @@
         const res = await fetch(BASE_PATH + MANIFEST, { cache: 'no-store' });
         if (!res.ok) throw new Error('manifest.json not found');
         const json = await res.json();
-        // 기대 형식: [{ round: 1189, file: "predictions_1189회_80000줄.csv", label: "1189회" }, ...]
         if (!Array.isArray(json)) throw new Error('manifest must be an array');
         manifest = json;
         if (manifest.length === 0) throw new Error('manifest is empty');
@@ -190,7 +160,6 @@
       rows = [];
       page = 1;
       tbody.innerHTML = '';
-
       Papa.parse(BASE_PATH + currentFile, {
         download: true,
         header: true,
@@ -210,11 +179,9 @@
     function renderPage() {
       const total = rows.length;
       const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
       if (page > totalPages) page = totalPages;
       const start = (page - 1) * pageSize;
       const end   = Math.min(start + pageSize, total);
-
       tbody.innerHTML = '';
       for (let i = start; i < end; i++) {
         const r = rows[i];
@@ -232,21 +199,16 @@
         `;
         tbody.appendChild(tr);
       }
-
       pageNow.textContent = String(page);
       pageTotal.textContent = String(totalPages);
       pageNow2.textContent = String(page);
       pageTotal2.textContent = String(totalPages);
-
       const canPrev = page > 1;
       const canNext = page < totalPages;
       prevBtns.forEach(b => b.disabled = !canPrev);
       nextBtns.forEach(b => b.disabled = !canNext);
     }
 
-    // ==============================
-    // 이벤트 바인딩
-    // ==============================
     roundSelect.addEventListener('change', () => {
       const sel = roundSelect.selectedOptions[0];
       currentRound = Number(sel.value);
