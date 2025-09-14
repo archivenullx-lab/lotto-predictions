@@ -9,6 +9,8 @@
   <style>
     .table-container { height: 60vh; overflow: auto; }
     thead th { position: sticky; top: 0; background: white; }
+    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
   </style>
 </head>
 <body class="min-h-screen bg-gray-50 text-gray-900">
@@ -37,20 +39,25 @@
     <!-- 테이블 & 페이지네이션 -->
     <section class="w-full mt-8 flex flex-col items-center">
       <div class="w-full max-w-5xl bg-white shadow-sm rounded-2xl p-4">
+        <!-- 페이지 컨트롤 (상단) -->
         <div class="flex flex-wrap items-center justify-center gap-3 mb-4">
           <button id="prevBtn" class="px-3 py-2 rounded-xl border" disabled>이전</button>
           <div class="text-sm">페이지 <span id="pageNow">1</span> / <span id="pageTotal">1</span></div>
           <button id="nextBtn" class="px-3 py-2 rounded-xl border" disabled>다음</button>
+          <!-- 페이지 점프 -->
           <div class="flex items-center gap-2 ml-4">
-            <label for="pageSize" class="text-sm">페이지 크기</label>
-            <select id="pageSize" class="border rounded-lg px-2 py-1">
-              <option>100</option>
-              <option selected>200</option>
-              <option>500</option>
-              <option>1000</option>
-            </select>
+            <label for="pageJump" class="text-sm">바로가기</label>
+            <input id="pageJump" type="number" class="border rounded-lg px-3 py-2 w-24 text-center" min="1" value="1"/>
+            <button id="jumpBtn" class="px-3 py-2 rounded-xl border">이동</button>
+          </div>
+          <!-- 페이지 크기: 1000 고정 (비활성 표시) -->
+          <div class="flex items-center gap-2 ml-4 opacity-60 select-none" title="페이지 크기는 1000으로 고정됩니다.">
+            <span class="text-sm">페이지 크기</span>
+            <span class="text-sm font-medium">1000</span>
           </div>
         </div>
+
+        <!-- 테이블 -->
         <div class="table-container border rounded-xl">
           <table class="min-w-full text-sm text-center">
             <thead>
@@ -68,10 +75,17 @@
             <tbody id="tbody"></tbody>
           </table>
         </div>
+
+        <!-- 페이지 컨트롤 (하단) -->
         <div class="flex flex-wrap items-center justify-center gap-3 mt-4">
           <button id="prevBtn2" class="px-3 py-2 rounded-xl border" disabled>이전</button>
           <div class="text-sm">페이지 <span id="pageNow2">1</span> / <span id="pageTotal2">1</span></div>
           <button id="nextBtn2" class="px-3 py-2 rounded-xl border" disabled>다음</button>
+          <div class="flex items-center gap-2 ml-4">
+            <label for="pageJump2" class="text-sm">바로가기</label>
+            <input id="pageJump2" type="number" class="border rounded-lg px-3 py-2 w-24 text-center" min="1" value="1"/>
+            <button id="jumpBtn2" class="px-3 py-2 rounded-xl border">이동</button>
+          </div>
         </div>
       </div>
     </section>
@@ -85,12 +99,13 @@
   <script>
     const BASE_PATH = "data/";
     const MANIFEST  = "manifest.json";
+
     let manifest = [];
     let currentRound = null;
     let currentFile = null;
     let rows = [];
     let page = 1;
-    let pageSize = 200;
+    const pageSize = 1000; // ★ 페이지 크기 고정 1000
 
     const $ = (sel) => document.querySelector(sel);
     const roundSelect = $("#roundSelect");
@@ -98,13 +113,20 @@
     const downloadLink= $("#downloadLink");
     const copyLinkBtn = $("#copyLinkBtn");
     const statusEl    = $("#status");
+
     const pageNow  = $("#pageNow");
     const pageTotal= $("#pageTotal");
     const pageNow2 = $("#pageNow2");
     const pageTotal2=$("#pageTotal2");
+
     const prevBtns = [$("#prevBtn"), $("#prevBtn2")];
     const nextBtns = [$("#nextBtn"), $("#nextBtn2")];
-    const pageSizeSel = $("#pageSize");
+
+    const pageJump  = $("#pageJump");
+    const jumpBtn   = $("#jumpBtn");
+    const pageJump2 = $("#pageJump2");
+    const jumpBtn2  = $("#jumpBtn2");
+
     const tbody = $("#tbody");
 
     function setStatus(msg, isError=false) {
@@ -175,12 +197,16 @@
       });
     }
 
+    function clamp(val, min, max){ return Math.max(min, Math.min(max, val)); }
+
     function renderPage() {
       const total = rows.length;
       const totalPages = Math.max(1, Math.ceil(total / pageSize));
-      if (page > totalPages) page = totalPages;
+      page = clamp(page, 1, totalPages);
+
       const start = (page - 1) * pageSize;
       const end   = Math.min(start + pageSize, total);
+
       tbody.innerHTML = '';
       for (let i = start; i < end; i++) {
         const r = rows[i];
@@ -194,20 +220,38 @@
           <td class="py-2">${r['번호4'] ?? ''}</td>
           <td class="py-2">${r['번호5'] ?? ''}</td>
           <td class="py-2">${r['번호6'] ?? ''}</td>
-          <td class="py-2 font-semibold">${r['보너스'] ?? ''}</td>
-        `;
+          <td class="py-2 font-semibold">${r['보너스'] ?? ''}</td>`;
         tbody.appendChild(tr);
       }
+
+      // 페이지 인디케이터 & 버튼 상태
       pageNow.textContent = String(page);
       pageTotal.textContent = String(totalPages);
       pageNow2.textContent = String(page);
       pageTotal2.textContent = String(totalPages);
+
+      // 점프 입력값 동기화 (최대값 갱신)
+      pageJump.max = String(totalPages);
+      pageJump.value = String(page);
+      pageJump2.max = String(totalPages);
+      pageJump2.value = String(page);
+
       const canPrev = page > 1;
       const canNext = page < totalPages;
       prevBtns.forEach(b => b.disabled = !canPrev);
       nextBtns.forEach(b => b.disabled = !canNext);
     }
 
+    function jumpTo(inputEl){
+      const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+      const val = parseInt(inputEl.value, 10);
+      if (!isNaN(val)) {
+        page = clamp(val, 1, totalPages);
+        renderPage();
+      }
+    }
+
+    // 이벤트 바인딩
     roundSelect.addEventListener('change', () => {
       const sel = roundSelect.selectedOptions[0];
       currentRound = Number(sel.value);
@@ -220,18 +264,17 @@
 
     loadBtn.addEventListener('click', loadCSV);
 
-    pageSizeSel.addEventListener('change', () => {
-      pageSize = Number(pageSizeSel.value);
-      page = 1;
-      renderPage();
-    });
-
     prevBtns.forEach(btn => btn.addEventListener('click', () => { page = Math.max(1, page - 1); renderPage(); }));
     nextBtns.forEach(btn => btn.addEventListener('click', () => {
       const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
       page = Math.min(totalPages, page + 1);
       renderPage();
     }));
+
+    jumpBtn.addEventListener('click', () => jumpTo(pageJump));
+    jumpBtn2.addEventListener('click', () => jumpTo(pageJump2));
+    pageJump.addEventListener('keydown', (e) => { if (e.key === 'Enter') jumpTo(pageJump); });
+    pageJump2.addEventListener('keydown', (e) => { if (e.key === 'Enter') jumpTo(pageJump2); });
 
     copyLinkBtn.addEventListener('click', async () => {
       const url = new URL(window.location.href);
